@@ -1,7 +1,7 @@
 # AI Interview Prep Platform
 
-![AI Interview Prep](screenshots/Screenshot 2026-03-07 170228.png)
-(screenshots/Screenshot 2026-03-07 170513.png)
+![AI Interview Prep](screenshots/Screenshot1.png)
+![AI Interview Prep](screenshots/Screenshot2.png)
 
 **Practice interviews like the real thing.** AI Interview Prep is a full-stack conversational mock interview platform built specifically for freshers. Upload your resume, and an AI interviewer will ask you personalized questions based on your actual projects and skills — one question at a time, just like a real interview.
 
@@ -74,11 +74,11 @@ After 8-10 questions → Final feedback with score and tips
 
 **Setup Screen — Upload Resume and Select Role**
 
-![Setup Screen](screenshots/Screenshot 2026-03-07 170228.png)
+![Setup Screen](screenshots/Screenshot3.png)
 
 **Live Interview — Conversational Chat UI**
 
-![Interview Screen](screenshots/Screenshot 2026-03-07 170513.png)
+![Interview Screen](screenshots/Screenshot2.png)
 
 **Final Feedback — Score and Improvement Tips**
 
