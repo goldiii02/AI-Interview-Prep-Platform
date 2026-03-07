@@ -29,7 +29,8 @@ FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS", "").strip().strip('"').
 if not GROQ_API_KEY:
     raise RuntimeError("Missing GROQ_API_KEY in environment (.env).")
 if not FIREBASE_CREDENTIALS:
-    raise RuntimeError("Missing FIREBASE_CREDENTIALS in environment (.env).")
+    print("Warning: Firebase credentials not found. Auth disabled.")
+firebase_initialized = False
 
 
 # --- App ---
