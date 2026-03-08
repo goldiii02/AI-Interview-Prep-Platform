@@ -9,9 +9,6 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from firebase_admin import auth as firebase_auth
-from firebase_admin import credentials as firebase_credentials
-import firebase_admin
 from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
@@ -19,18 +16,14 @@ from langgraph.graph import END, StateGraph
 
 
 # --- Environment ---
-load_dotenv()  # also supports running from repo root
+load_dotenv()
 _HERE = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(_HERE, ".env"))  # supports running from backend/
+load_dotenv(os.path.join(_HERE, ".env"))
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip().strip('"').strip("'")
-FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS", "").strip().strip('"').strip("'")
 
 if not GROQ_API_KEY:
     raise RuntimeError("Missing GROQ_API_KEY in environment (.env).")
-if not FIREBASE_CREDENTIALS:
-    print("Warning: Firebase credentials not found. Auth disabled.")
-firebase_initialized = False
 
 
 # --- App ---
@@ -43,66 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# --- Firebase auth ---
-_firebase_initialized = False
-
-
-def _init_firebase() -> None:
-    global _firebase_initialized
-    if _firebase_initialized:
-        return
-
-    creds_value = FIREBASE_CREDENTIALS
-    try:
-        if os.path.exists(creds_value):
-            cred = firebase_credentials.Certificate(creds_value)
-        else:
-            # allow FIREBASE_CREDENTIALS to be a JSON string
-            cred = firebase_credentials.Certificate(json.loads(creds_value))
-        firebase_admin.initialize_app(cred)
-        _firebase_initialized = True
-    except Exception as e:  # noqa: BLE001 - we surface configuration error cleanly
-        raise RuntimeError(
-            "Failed to initialize Firebase Admin SDK. "
-            "Check FIREBASE_CREDENTIALS (path or JSON)."
-        ) from e
-
-
-security = HTTPBearer(auto_error=False)
-
-
-def require_user(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(security),
-) -> Dict[str, Any]:
-    if creds is None or not creds.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header (Bearer token).",
-        )
-    _init_firebase()
-    try:
-        decoded = firebase_auth.verify_id_token(creds.credentials)
-        return decoded
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired auth token.",
-        )
-
-
-def optional_user(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(security),
-) -> Optional[Dict[str, Any]]:
-    """Return decoded user if valid Bearer token provided; otherwise None (no 401)."""
-    if creds is None or not creds.credentials:
-        return None
-    _init_firebase()
-    try:
-        return firebase_auth.verify_id_token(creds.credentials)
-    except Exception:
-        return None
 
 
 # --- LLM helpers ---
@@ -278,7 +211,6 @@ _eval_app = _build_eval_graph()
 @app.post("/generate-questions")
 def generate_questions(
     req: GenerateQuestionsRequest,
-    user: Dict[str, Any] = Depends(require_user),
 ) -> List[str]:
     role = req.role.strip()
     skills = [s.strip() for s in req.skills if s.strip()]
@@ -305,14 +237,12 @@ def generate_questions(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="LLM did not return exactly 5 questions.",
         )
-
     return questions
 
 
 @app.post("/evaluate-answer", response_model=EvaluateAnswerResponse)
 def evaluate_answer(
     req: EvaluateAnswerRequest,
-    user: Dict[str, Any] = Depends(require_user),
 ) -> EvaluateAnswerResponse:
     state: EvalState = {"question": req.question.strip(), "answer": req.answer.strip()}
     result: EvalState = _eval_app.invoke(state)
@@ -340,7 +270,6 @@ FIRST_QUESTION = (
 @app.post("/start-interview", response_model=StartInterviewResponse)
 def start_interview(
     req: StartInterviewRequest,
-    user: Dict[str, Any] = Depends(require_user),
 ) -> StartInterviewResponse:
     return StartInterviewResponse(first_question=FIRST_QUESTION)
 
@@ -358,7 +287,6 @@ def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
     role = req.role.strip()
     skills = [s.strip() for s in req.skills if s.strip()]
     history = req.conversation_history or []
-    # Build full history including this turn
     full_history = list(history) + [
         ConversationTurn(question=req.previous_question, answer=req.candidate_answer)
     ]
@@ -374,16 +302,16 @@ def next_question(req: NextQuestionRequest) -> NextQuestionResponse:
         "Your tasks:\n"
         "1. Give BRIEF feedback on the candidate's last answer (1-2 lines only).\n"
         "2. Decide the NEXT question. Rules:\n"
-        "   - If the answer mentioned a project, ask a follow-up about that project (e.g. your role, challenges, tech used).\n"
+        "   - If the answer mentioned a project, ask a follow-up about that project.\n"
         "   - If the answer was weak or vague, ask a simpler follow-up to help them.\n"
-        "   - After 8-10 exchanges total, wrap up: set is_complete=true and ask: 'Do you have any questions for us?'\n"
-        "   - Otherwise ask the next relevant question (project deep-dive, basic concept from their stack, or one situational/HR question).\n"
-        "3. After the closing question ('Do you have any questions for us?'), set is_complete=true.\n\n"
-        f"Current exchange count: {turn_count}. You should aim for 8-10 total, then end.\n\n"
+        "   - After 8-10 exchanges total, wrap up with: 'Do you have any questions for us?'\n"
+        "   - Otherwise ask the next relevant question.\n"
+        "3. After the closing question, set is_complete=true.\n\n"
+        f"Current exchange count: {turn_count}. Aim for 8-10 total, then end.\n\n"
         "Return STRICT JSON with exactly these keys:\n"
         '- "feedback": string (1-2 lines on the last answer)\n'
         '- "next_question": string (the next question to ask)\n'
-        '- "is_complete": boolean (true only when interview should end, e.g. after "Do you have any questions for us?")'
+        '- "is_complete": boolean (true only when interview should end)'
     )
     resp = _llm(temperature=0.5).invoke(prompt)
     data = _parse_json_from_text(getattr(resp, "content", str(resp)))
@@ -447,7 +375,6 @@ def end_interview(req: EndInterviewRequest) -> EndInterviewResponse:
 @app.post("/parse-resume")
 async def parse_resume(
     file: UploadFile = File(...),
-    user: Dict[str, Any] = Depends(require_user),
 ) -> List[str]:
     filename = (file.filename or "").lower()
     if not filename.endswith(".pdf"):
@@ -473,7 +400,7 @@ async def parse_resume(
                 if text.strip():
                     extracted_parts.append(text)
         resume_text = "\n\n".join(extracted_parts).strip()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to extract text from PDF.",
@@ -500,7 +427,6 @@ async def parse_resume(
             detail="LLM returned unexpected format for skills.",
         )
     skills = [str(s).strip() for s in data if str(s).strip()]
-    # dedupe while preserving order
     seen = set()
     skills_unique: List[str] = []
     for s in skills:
@@ -511,4 +437,3 @@ async def parse_resume(
         skills_unique.append(s)
 
     return skills_unique[:100]
-
