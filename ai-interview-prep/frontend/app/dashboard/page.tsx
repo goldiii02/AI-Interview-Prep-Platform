@@ -195,7 +195,7 @@ export default function DashboardPage() {
                     axisLine={{ stroke: "#e4e4e7" }}
                   />
                   <Tooltip
-                    formatter={(value: number | undefined) => [`${value ?? 0}/10`, "Score"]}
+                    formatter={(value) => [`${value ?? 0}/10`, "Score"]}
                     labelFormatter={(label: string, payload) =>
                       payload?.[0]?.payload?.label || `Session ${label}`
                     }
