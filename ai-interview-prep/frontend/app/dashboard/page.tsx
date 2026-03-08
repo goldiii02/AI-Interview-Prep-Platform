@@ -196,7 +196,7 @@ export default function DashboardPage() {
                   />
                   <Tooltip
                     formatter={(value) => [`${value ?? 0}/10`, "Score"]}
-                    labelFormatter={(label: string, payload) =>
+                   labelFormatter={(label, payload) =>
                       payload?.[0]?.payload?.label || `Session ${label}`
                     }
                     contentStyle={{
